@@ -1,0 +1,125 @@
+%% download and add  chronux_2_10 to the path
+%% FFT of aligned data at the timing of some signal
+
+clear all
+
+monkey = 'Ni';
+ecogChannel = [1:32];
+
+% aligned_data; channel x time series x trial
+% parameter of FFT
+        movingwin=[0.2 0.005];  %0.2s window, 0.005s step, set the moving window dimensions
+        params.Fs=1375;         %sampling frequency
+        params.fpass=[1 200];   %FFT frequency, frequency of interest
+        
+% Filter 
+PreprocessECoG.fFilter = 1;% ?t?B???^???|??P??????1?A????P????????0
+PreprocessECoG.FilterN = 2;% ?|??P???t?B???^??????h
+PreprocessECoG.FilterWn = [10 240];%?J?b?g?I?t???hg??h
+PreprocessECoG.FilterType = 'bandpass';%?t?B???^??????
+PreprocessECoG.SampFreq = 1375 ;% ?????M?????T??g?v????g?O???hg??h
+
+
+% load your file and variable
+% load('F20220516_M1_grasp_off.mat');%align_M1
+[file,path] = uigetfile('*.mat','Select a file',fullfile('ECoG_EMG_Analysis', monkey,'FiltData'));
+if isequal(file,0)
+    disp('You selected Cancel')
+    return
+else
+    disp(['You selected "' file '"'])
+end
+load([path file],'LFP_raw')
+
+% aligned_data = aligned_M1(:,:,:);   
+aligned_data = LFP_raw.All;
+aligned_data = aligned_data(ecogChannel,:,:);
+[Ch, Time_series, Trial] = size(aligned_data);
+M = mean(aligned_data,1);
+M = repmat(M,numel(ecogChannel),1);
+aligned_data = aligned_data - M;
+
+% パワースペクトラムで可視化
+% figure(5); hold on;
+% power = zeros(32,Time_series);
+% for kk = 1:Trial
+%     M = mean(aligned_data(1:32,:,kk),1);
+%     M = repmat(M,32,1);
+%     aligned_data(1:32,:,kk) = aligned_data(1:32,:,kk) - M;
+%     
+%     % fft check
+%     for l = 1:32
+%         power(l,:) = power(l,:) + abs(fft(aligned_data(l,:,kk))).^2/Time_series;
+%     end
+% end
+% power = power/max(power,[],'all');
+% for kk = 1:32
+%     plot([0:Time_series-1],power(33-kk,:)+2*(kk-1));
+% end
+% ylim([0 66]);
+
+
+% chronuxを使った周波数解析
+for iCh = 1:Ch
+    for itrial = 1:Trial
+        [oB,oA] = butter(PreprocessECoG.FilterN,PreprocessECoG.FilterWn/PreprocessECoG.SampFreq*2, PreprocessECoG.FilterType);
+        ECoG2(iCh, :, itrial) = filtfilt(oB,oA,aligned_data(iCh, :, itrial));
+    end
+end
+    
+for k = 1:Ch
+    data = [];
+    data = reshape(ECoG2(k,:,:), Time_series, Trial);
+    
+    for i=1:Trial
+        [S,t,f] = mtspecgramc(data(:,i), movingwin, params);
+        S = S';
+        [S_tate S_yoko] = size(S);                          %P_tate ... freq??ﾊ??, P_yoko ... time??ﾊ??
+        
+        normalized_S = S./(ones([S_yoko,1])*mean(S'))';     %normalization of power at each frequency
+        deltaS = 10*log10(normalized_S);
+        S_move = deltaS;
+        
+        FFT_signal(:,:,i,k) = S_move;
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%         figure(2);
+%         subplot(6,6,map(k)); % for M1
+%         
+%         hold on
+%         plot(ECoG2(k,:,i));
+% %         ylim([-100 100]);
+%         ylim([-5 5]);
+        
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    end
+    
+    %FFT_signal(:,:,[27,33,34],:) = [];
+    figure(1);
+    %     subplot(2,1,i)
+    
+    subplot(Ch,1,k); % for M1
+    xl = (t(end)-t(1))/2 ;
+    gcf = surf(t - xl, f, mean(FFT_signal(:,:,:,k), 3),'edgecolor','none');
+    axis tight; view(0,90);
+    ylim([0 200]);                                         %frequency of display
+    xlim([-0.5 0.5]);                                           %time of display (second)
+    caxis([-2 4]);                                         %z axis of image [-2 4] % [-5 5]
+    
+    colormap jet
+    
+    hold on
+    set(gca,'linewidth',1.5, 'YTick', [0:50:200],'XTick', [-2:1:4],'TickDir','out','Layer','top');
+    set(gca, 'TickDir', 'out');
+    set(gca, 'Linewidth', 1);
+    set(gca, 'Layer', 'bottom');
+    set(gca, 'Layer', 'top');
+    set(gca, 'GridLineStyle', 'none');
+    set(gca,'fontsize',7);
+end
+
+
+title('Nibali M1 pre surgery grasp off')
+
+xlabel('time')
+ylabel('frequency')
+
